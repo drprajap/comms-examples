@@ -1,6 +1,6 @@
 # comms-examples
 
-These examples are standalone HIP examples that uses ROCm-aware openMPI and UCX and try to implement collective comms operations.
+These examples are standalone HIP examples that uses ROCm-aware openMPI and UCX and try to implement collective comms operations. These examples are written to have in-depth understanding of current comms libraries and minimize existing libraries layering to invoke collective communication operations intra-node and inter-node. With these examples, one can inspect underlying SW stack invocations like HIP APIs usage as well as how execution progresses from SW to HW (GPU/network interconnects etc.) while running the collective comms ops. The goal is to integrate the functionality or take learnings from these examples and implement efficient intra-node/inter-node suport in IREE frontend/compiler/runtime stages.
 
 the goal for this examples is to have communication and computation to overlap and have GPU invoked communication without involving host or explicit device buffer transfers.
 The way it is going to achieve that goal is to setup symmetric heap and map HIP device buffers through the heap, pass pointers across devices and reference cross-device buffers directly from kernel for get/put operations.
