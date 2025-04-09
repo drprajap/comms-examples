@@ -37,7 +37,6 @@ make -j 8 install
 
 Build Open MPI
 ```
-cd $BUILD_DIR
 git clone --recursive https://github.com/open-mpi/ompi.git \
     -b v5.0.x
 cd ompi
