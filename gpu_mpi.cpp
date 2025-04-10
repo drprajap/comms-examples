@@ -64,35 +64,108 @@ int main(int argc, char **argv) {
   printf("CommSize: %d HIP Device count: %d , CurrDevice: %d Rank: %d\n",
          numRanks, numDevices, currDevice, myRank);
 
-  HIP_CHECK(hipMalloc(&symmetricHeap, /*HEAP_SIZE*(sizeof(char))*/ heapSize));
-  HIP_CHECK(hipMemset(symmetricHeap, currDevice, heapSize));
+  // Allocate Symmetric heap on local device memory, each device will allocate
+  // one
+  HIP_CHECK(hipMalloc(&symmetricHeap, HEAP_SIZE));
+
+  // Gets IPC memory handle for local device's symmetric heap that can be given
+  // to hipIpcOpenMemHandle, That will map remote heap allocation to local
+  // device's address space.
+  hipIpcMemHandle_t ipcMemHandle;
+  HIP_CHECK(hipIpcGetMemHandle(&ipcMemHandle, symmetricHeap));
+
+  // gathers IPC handles of heap allocation from all devices
+  hipIpcMemHandle_t *ipcMemHandles =
+      (hipIpcMemHandle_t *)malloc(numDevices * sizeof(hipIpcMemHandle_t));
+  MPI_Allgather(&ipcMemHandle, sizeof(hipIpcMemHandle_t), MPI_CHAR,
+                ipcMemHandles, sizeof(hipIpcMemHandle_t), MPI_CHAR,
+                MPI_COMM_WORLD);
+
+  MPI_Barrier(MPI_COMM_WORLD);
 
   void **heapBases = (void **)malloc(numDevices * sizeof(void *));
   heapBases[currDevice] = symmetricHeap;
 
   printf("heapBases[%d]: %p \n", currDevice, heapBases[currDevice]);
 
-  hipIpcMemHandle_t ipc_handle;
-
-  // Gets IPC memory handle for local device's symmetric heap that can be given
-  // to hipIpcOpenMemHandle, that maps this heap allocation to another device's
-  // address space.
-  HIP_CHECK(hipIpcGetMemHandle(&ipc_handle, symmetricHeap));
-
-  hipIpcMemHandle_t *ipcMemHandles =
-      (hipIpcMemHandle_t *)malloc(numDevices * sizeof(hipIpcMemHandle_t));
-  MPI_Allgather(&ipc_handle, sizeof(hipIpcMemHandle_t), MPI_CHAR, ipcMemHandles,
-                sizeof(hipIpcMemHandle_t), MPI_CHAR, MPI_COMM_WORLD);
+  // hipIpcOpenMemHandle maps remote/peer heap allocation into
+  // local device address space, heap allocations can be accessed
+  // via remoteBuf device pointer
+  for (int i = 0; i < numDevices; i++) {
+    if (i != currDevice) {
+      void *remoteBuf = NULL;
+      HIP_CHECK(hipIpcOpenMemHandle(&remoteBuf, ipcMemHandles[i],
+                                    hipIpcMemLazyEnablePeerAccess));
+      heapBases[i] = remoteBuf;
+    }
+  }
 
   MPI_Barrier(MPI_COMM_WORLD);
 
-  void *remoteBuf = NULL;
-  HIP_CHECK(hipMalloc(&remoteBuf, heapSize));
+  for (int i = 0; i < numDevices; i++) {
+    printf("GPU: %d - heap from GPU %d: %p\n", currDevice, i, heapBases[i]);
+  }
 
-  // Open IpcHandle associated with symmetric heap allocation on remote/peer
-  // device and maps allocation memory to current device address space,
-  // current device can use/access the remote buffer by referencing device
-  // pointer returned by hipIpcOpenMemHandle.
+  void **d_heapBases;
+  HIP_CHECK(hipMalloc(&d_heapBases, numDevices * (sizeof(void *))));
+  HIP_CHECK(hipMemcpy(d_heapBases, heapBases, numDevices * sizeof(void *),
+                      hipMemcpyHostToDevice));
+
+  for (int i = 0; i < numDevices; i++) {
+    if (i != currDevice) {
+      HIP_CHECK(hipIpcCloseMemHandle(heapBases[i]));
+    }
+  }
+
+  HIP_CHECK(hipFree(d_heapBases));
+  HIP_CHECK(hipFree(symmetricHeap));
+
+  free(ipcMemHandles);
+  free(heapBases);
+
+  MPI_Finalize();
+
+  return 0;
+}
+
+void peer2peerWithIpc(int myRank) {
+  int numDevices, currDevice = 0;
+  void *symmetricHeap = NULL;
+  void *remoteBuf = NULL;
+  size_t heapSize = 1024;
+
+  HIP_CHECK(hipGetDeviceCount(&numDevices));
+  currDevice = myRank % numDevices;
+  HIP_CHECK(hipSetDevice(currDevice));
+
+  printf("HIP Device count: %d , CurrDevice: %d Rank: %d\n", numDevices,
+         currDevice, myRank);
+
+  HIP_CHECK(hipMalloc(&symmetricHeap, HEAP_SIZE));
+
+  void **heapBases = (void **)malloc(numDevices * sizeof(void *));
+  heapBases[currDevice] = symmetricHeap;
+
+  printf("heapBases[%d]: %p \n", currDevice, heapBases[currDevice]);
+
+  hipIpcMemHandle_t ipcMemHandle;
+
+  // Gets IPC memory handle for local device's symmetric heap that can be given
+  // to hipIpcOpenMemHandle, that will map remote heap allocation to local
+  // device's address space.
+  HIP_CHECK(hipIpcGetMemHandle(&ipcMemHandle, symmetricHeap));
+
+  hipIpcMemHandle_t *ipcMemHandles =
+      (hipIpcMemHandle_t *)malloc(numDevices * sizeof(hipIpcMemHandle_t));
+  MPI_Allgather(&ipcMemHandle, sizeof(hipIpcMemHandle_t), MPI_CHAR,
+                ipcMemHandles, sizeof(hipIpcMemHandle_t), MPI_CHAR,
+                MPI_COMM_WORLD);
+
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  // hipIpcOpenMemHandle maps remote/peer heap allocation into
+  // local device address space, heap allocations can be accessed
+  // via remoteBuf device pointer
   int peerDevice = (currDevice + 1) % 2;
   if (currDevice == 0) {
     HIP_CHECK(hipIpcOpenMemHandle(&remoteBuf, ipcMemHandles[peerDevice],
@@ -105,8 +178,9 @@ int main(int argc, char **argv) {
   }
   MPI_Barrier(MPI_COMM_WORLD);
 
-  char *hostBuf = (char *)malloc(heapSize);
-  HIP_CHECK(hipMemcpy(hostBuf, remoteBuf, heapSize, hipMemcpyDeviceToHost));
+  char *hostRemoteBuf = (char *)malloc(heapSize);
+  HIP_CHECK(
+      hipMemcpy(hostRemoteBuf, remoteBuf, heapSize, hipMemcpyDeviceToHost));
 
   char *hostLocalBuf = (char *)malloc(heapSize);
   HIP_CHECK(
@@ -115,46 +189,14 @@ int main(int argc, char **argv) {
   printf("GPU: %d - data from local buf : %d %d %d\n", currDevice,
          hostLocalBuf[0], hostLocalBuf[1], hostLocalBuf[2]);
 
-  printf("GPU: %d - data from Remote buf : %d %d %d\n", currDevice, hostBuf[0],
-         hostBuf[1], hostBuf[2]);
+  printf("GPU: %d - data from Remote buf : %d %d %d\n", currDevice,
+         hostRemoteBuf[0], hostRemoteBuf[1], hostRemoteBuf[2]);
 
   HIP_CHECK(hipIpcCloseMemHandle(remoteBuf));
 
-  // char *baseHeap = (char *) heapBases[myRank];
-  // printf("baseHeap: %x\n", baseHeap);
-  // HIP_CHECK(hipIpcGetMemHandle(&ipcMemHandles[myRank], baseHeap));
-
-  // MPI_Barrier(MPI_COMM_WORLD);
-
-  // printf("ipcHandle: %p\n", ipcMemHandles[myRank]);
-  // MPI_Comm shmcomm;
-  // MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL,
-  //                     &shmcomm);
-  // MPI_Allgather(MPI_IN_PLACE, sizeof(hipIpcMemHandle_t), MPI_CHAR,
-  // ipcMemHandles, sizeof(hipIpcMemHandle_t),MPI_CHAR, shmcomm);
-
-  // char **ipcBase;
-  // HIP_CHECK(hipMalloc(reinterpret_cast<void **>(&ipcBase),
-  //             numRanks * sizeof(char **)));
-
-  // for (int i = 0; i < numRanks; i++) {
-  //   if (i != myRank) {
-  //     void **ipc_base_uncast = reinterpret_cast<void **>(&ipcBase[i]);
-  //     HIP_CHECK(hipIpcOpenMemHandle(ipc_base_uncast, ipcMemHandles[i],
-  //                                   hipIpcMemLazyEnablePeerAccess));
-  //   } else {
-  //     ipcBase[i] = (char *)heapBases[myRank];
-  //   }
-  // }
-  // MPI_Barrier(MPI_COMM_WORLD);
-
   HIP_CHECK(hipFree(symmetricHeap));
-  free(hostBuf);
+  free(hostRemoteBuf);
   free(hostLocalBuf);
   free(ipcMemHandles);
   free(heapBases);
-
-  MPI_Finalize();
-
-  return 0;
 }
