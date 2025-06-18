@@ -26,3 +26,13 @@ hipcc  --offload-arch=gfx942 -c -fgpu-rdc -x hip comm_hsaco.cpp -I${ROCM_PATH}/i
  hipcc --offload-arch=gfx942 -fgpu-rdc --hip-link comm_hsaco_compile.o -o comm_rocshmem_hsaco \
  ${ROCSHMEM_INSTALL_DIR}/lib/librocshmem.a  ${OMPI_DIR}/lib/libmpi.so \
  -L${ROCM_PATH}/lib -lamdhip64 -lhsa-runtime64
+
+# build rocshmem bitcode
+# Triton-distributed/shmem/rocshmem_bind/scripts/build_rocshmem_device_bc.sh
+
+ # Generate hsaco
+# llc -march=amdgcn -mcpu=gfx942 -filetype=obj final_kernel.bc -o final_combined.o
+# ld.lld -shared final_combined.o -o kernel.hsaco
+
+# check function present in bitcode
+# llvm-nm final_combined.o | grep add_rocshmem_my_pe
