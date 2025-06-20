@@ -90,12 +90,17 @@ int main(int argc, char **argv) {
   // Load module and get function
   hipModule_t module;
   hipFunction_t my_pe_kernel;
+  hipFunction_t testing_kernel;
+  hipFunction_t get_next_pe_kernel;
+  void *sym_addr;
+  size_t sym_size;
+
   CHECK_HIP(hipModuleLoadData(&module, binary.data()));
   CHECK_HIP(
       hipModuleGetFunction(&my_pe_kernel, module, "rocshmem_my_pe_kernel"));
-
-  void *sym_addr;
-  size_t sym_size;
+  CHECK_HIP(hipModuleGetFunction(&get_next_pe_kernel, module,
+                                 "rocshmem_get_next_pe_kernel"));
+  CHECK_HIP(hipModuleGetFunction(&testing_kernel, module, "testing_wrapper"));
 
   CHECK_HIP(
       hipModuleGetGlobal(&sym_addr, &sym_size, module, "ROCSHMEM_CTX_DEFAULT"));
@@ -104,10 +109,11 @@ int main(int argc, char **argv) {
 
   CHECK_HIP(hipDeviceSynchronize());
 
-  int *destbuf = (int *)rocshmem_malloc(sizeof(int) * N);
+  ///////////// rocshmem_my_pe_kernel
+  int *mypebuf = (int *)rocshmem_malloc(sizeof(int) * N);
   rocshmem_barrier_all();
 
-  void *kernel_args[] = {destbuf};
+  void *kernel_args[] = {mypebuf};
   size_t arg_size = sizeof(kernel_args);
 
   void *config[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, kernel_args,
@@ -121,11 +127,60 @@ int main(int argc, char **argv) {
 
   CHECK_HIP(hipDeviceSynchronize());
 
-  CHECK_HIP(hipMemcpyAsync(&msg, destbuf, sizeof(int) * N,
+  CHECK_HIP(hipMemcpyAsync(&msg, mypebuf, sizeof(int) * N,
                            hipMemcpyDeviceToHost, NULL));
-  std::cout << "\n mype " << rocshmem_my_pe() << " dest: " << msg << "\n";
+  // std::cout << "\n mype " << rocshmem_my_pe() << " value: " << msg << "\n";
 
-  rocshmem_free(destbuf);
+  /////////// testing_kernel
+  int *testbuf = (int *)rocshmem_malloc(sizeof(int) * N);
+  msg = nullptr;
+  rocshmem_barrier_all();
+
+  void *testkernel_args[] = {testbuf};
+  arg_size = sizeof(testkernel_args);
+
+  void *testconfig[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, testkernel_args,
+                        HIP_LAUNCH_PARAM_BUFFER_SIZE, &arg_size,
+                        HIP_LAUNCH_PARAM_END};
+
+  CHECK_HIP(hipModuleLaunchKernel(testing_kernel, 1, 1, 1,  // grid
+                                  1, 1, 1,                  // block
+                                  0, 0,  // shared memory, stream
+                                  nullptr, testconfig));
+
+  CHECK_HIP(hipDeviceSynchronize());
+
+  CHECK_HIP(hipMemcpyAsync(&msg, testbuf, sizeof(int) * N,
+                           hipMemcpyDeviceToHost, NULL));
+  // std::cout << "\n mype " << rocshmem_my_pe() << " value: " << msg << "\n";
+
+  ///////// get_next_pe_kernel
+
+  int *getnextbuf = (int *)rocshmem_malloc(sizeof(int) * N);
+  msg = nullptr;
+  rocshmem_barrier_all();
+
+  void *getnextkernel_args[] = {getnextbuf};
+  arg_size = sizeof(testkernel_args);
+
+  void *getnextconfig[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, getnextkernel_args,
+                           HIP_LAUNCH_PARAM_BUFFER_SIZE, &arg_size,
+                           HIP_LAUNCH_PARAM_END};
+
+  CHECK_HIP(hipModuleLaunchKernel(get_next_pe_kernel, 1, 1, 1,  // grid
+                                  1, 1, 1,                      // block
+                                  0, 0,  // shared memory, stream
+                                  nullptr, getnextconfig));
+
+  CHECK_HIP(hipDeviceSynchronize());
+
+  CHECK_HIP(hipMemcpyAsync(&msg, getnextbuf, sizeof(int) * N,
+                           hipMemcpyDeviceToHost, NULL));
+  std::cout << "\n mype " << rocshmem_my_pe() << " getnextbuf: " << msg << "\n";
+
+  rocshmem_free(testbuf);
+  rocshmem_free(getnextbuf);
+  rocshmem_free(mypebuf);
   rocshmem_free(d_rocshmem_ctx);
   rocshmem_finalize();
   return 0;
