@@ -77,8 +77,8 @@ int main(int argc, char **argv) {
   CHECK_HIP(hipMemcpyAsync(&h_rocshmem_ctx, d_rocshmem_ctx, sizeof(int) * 2,
                            hipMemcpyDeviceToHost, NULL));
 
-  // std::cout << "\n mype " << rocshmem_my_pe() << " h_rocshmem_ctx: " <<
-  // std::hex << h_rocshmem_ctx<< "\n";
+  std::cout << "\n mype " << rocshmem_my_pe() << " h_rocshmem_ctx: " << std::hex
+            << h_rocshmem_ctx << "\n";
 
   // Load hsaco binary
   std::ifstream file("kernel.hsaco", std::ios::binary | std::ios::ate);
@@ -96,16 +96,18 @@ int main(int argc, char **argv) {
   size_t sym_size;
 
   CHECK_HIP(hipModuleLoadData(&module, binary.data()));
+  rocshmem_hsaco_init(module, (void *)h_rocshmem_ctx);
+
   CHECK_HIP(
       hipModuleGetFunction(&my_pe_kernel, module, "rocshmem_my_pe_kernel"));
   CHECK_HIP(hipModuleGetFunction(&get_next_pe_kernel, module,
                                  "rocshmem_get_next_pe_kernel"));
   CHECK_HIP(hipModuleGetFunction(&testing_kernel, module, "testing_wrapper"));
 
-  CHECK_HIP(
-      hipModuleGetGlobal(&sym_addr, &sym_size, module, "ROCSHMEM_CTX_DEFAULT"));
-  CHECK_HIP(hipMemcpy(sym_addr, &h_rocshmem_ctx, sizeof(void *),
-                      hipMemcpyHostToDevice));
+  // CHECK_HIP(hipModuleGetGlobal(&sym_addr, &sym_size, module,
+  // "ROCSHMEM_CTX_DEFAULT")); CHECK_HIP(hipMemcpy(sym_addr, &h_rocshmem_ctx,
+  // sizeof(void *), hipMemcpyHostToDevice)); std::cout << "\n mype " <<
+  // rocshmem_my_pe() << " h_rocshmem_ctx: " << h_rocshmem_ctx << "\n";
 
   CHECK_HIP(hipDeviceSynchronize());
 
@@ -129,7 +131,7 @@ int main(int argc, char **argv) {
 
   CHECK_HIP(hipMemcpyAsync(&msg, mypebuf, sizeof(int) * N,
                            hipMemcpyDeviceToHost, NULL));
-  // std::cout << "\n mype " << rocshmem_my_pe() << " value: " << msg << "\n";
+  std::cout << "\n mype " << rocshmem_my_pe() << " value: " << msg << "\n";
 
   /////////// testing_kernel
   int *testbuf = (int *)rocshmem_malloc(sizeof(int) * N);
@@ -152,7 +154,7 @@ int main(int argc, char **argv) {
 
   CHECK_HIP(hipMemcpyAsync(&msg, testbuf, sizeof(int) * N,
                            hipMemcpyDeviceToHost, NULL));
-  // std::cout << "\n mype " << rocshmem_my_pe() << " value: " << msg << "\n";
+  std::cout << "\n mype " << rocshmem_my_pe() << " value: " << msg << "\n";
 
   ///////// get_next_pe_kernel
 
