@@ -21,3 +21,8 @@ ${ROCM_PATH}/lib/llvm/bin/clang++ -x hip --cuda-device-only -std=c++17  -emit-ll
 
 llvm-link ${ROCSHMEM_INSTALL_DIR}/lib/rocshmem_gpu.bc ${ROCSHMEM_INSTALL_DIR}/lib/rocshmem_backend_ipc.bc ${ROCSHMEM_INSTALL_DIR}/lib/rocshmem_context_device.bc ${ROCSHMEM_INSTALL_DIR}/lib/rocshmem_context_ipc_device_coll.bc ${ROCSHMEM_INSTALL_DIR}/lib/rocshmem_ipc_policy.bc ${ROCSHMEM_INSTALL_DIR}/lib/rocshmem_team.bc ${ROCSHMEM_INSTALL_DIR}/lib/rocshmem_abql_block_mutex.bc  kernel.bc rocshmem_wrapper.bc -o final_kernel.bc
 llvm-dis final_kernel.bc -o final_kernel.ll
+
+llc -march=amdgcn -mcpu=gfx942 -filetype=obj final_kernel.bc -o final_combined.o
+ld.lld -shared final_combined.o -o kernel.hsaco
+# check function present in bitcode
+# llvm-nm final_combined.o | grep add_rocshmem_my_pe

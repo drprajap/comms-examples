@@ -19,13 +19,21 @@ export OMPI_DIR=${OMPI_DIR:-${SCRIPT_DIR}/ompi_build/install/ompi}
 #  ${ROCSHMEM_INSTALL_DIR}/lib/librocshmem.a  ${OMPI_DIR}/lib/libmpi.so \
 #  -L${ROCM_PATH}/lib -lamdhip64 -lhsa-runtime64 -v
 
+#./build.sh
 
-echo "hipcc  --offload-arch=gfx942 -c -fgpu-rdc -x hip comm_hsaco.cpp -I${ROCM_PATH}/include  \
- -I${ROCSHMEM_INSTALL_DIR}/include -I${OMPI_DIR}/include -o comm_hsaco_compile.o"
+hipcc  --offload-arch=gfx942 -c -fgpu-rdc -x hip comm_hsaco.cpp -I${ROCM_PATH}/include  \
+ -I${ROCSHMEM_INSTALL_DIR}/include -I${OMPI_DIR}/include -o comm_hsaco_compile.o
 
- echo "hipcc --offload-arch=gfx942 -fgpu-rdc --hip-link comm_hsaco_compile.o -o comm_rocshmem_hsaco \
+hipcc --offload-arch=gfx942 -fgpu-rdc --hip-link comm_hsaco_compile.o -o run_comm_rocshmem_hsaco \
  ${ROCSHMEM_INSTALL_DIR}/lib/librocshmem.a  ${OMPI_DIR}/lib/libmpi.so \
- -L${ROCM_PATH}/lib -lamdhip64 -lhsa-runtime64"
+ -L${ROCM_PATH}/lib -lamdhip64 -lhsa-runtime64
+
+ hipcc  --offload-arch=gfx942 -c -fgpu-rdc -x hip comm_rocshmem.cpp -I${ROCM_PATH}/include  \
+ -I${ROCSHMEM_INSTALL_DIR}/include -I${OMPI_DIR}/include -o comm_rocshmem_compile.o
+
+hipcc --offload-arch=gfx942 -fgpu-rdc --hip-link comm_rocshmem_compile.o -o run_comm_rocshmem \
+ ${ROCSHMEM_INSTALL_DIR}/lib/librocshmem.a  ${OMPI_DIR}/lib/libmpi.so \
+ -L${ROCM_PATH}/lib -lamdhip64 -lhsa-runtime64
 
 # build rocshmem bitcode
 # Triton-distributed/shmem/rocshmem_bind/scripts/build_rocshmem_device_bc.sh
@@ -36,3 +44,5 @@ echo "hipcc  --offload-arch=gfx942 -c -fgpu-rdc -x hip comm_hsaco.cpp -I${ROCM_P
 
 # check function present in bitcode
 # llvm-nm final_combined.o | grep add_rocshmem_my_pe
+
+
