@@ -27,14 +27,13 @@ using namespace rocshmem;
 
 extern "C" {
 __device__ int rocshmem_my_pe_wrapper() { return rocshmem_my_pe(); }
-// __device__ int rocshmem_my_pe_wrapper() { return 0; /*return
-// rocshmem_my_pe(); */}
+__device__ int rocshmem_n_pes_wrapper() { return rocshmem_n_pes(); }
 
-// __device__ int rocshmem_n_pes_wrapper() { return 0;/*return rocshmem_n_pes();
-// */}
+__device__ void *rocshmem_ptr_wrapper(void *dest, int pe) {
+  return rocshmem_ptr(dest, pe);
+}
 
-// __device__ void *rocshmem_ptr_wrapper(void *dest, int pe) {
-//   return nullptr;
-//   /*return rocshmem_ptr(dest, pe);*/
-// }
+__device__ void rocshmem_int_p_wrapper(int *dest, int value, int pe) {
+  rocshmem_int_p(dest, value, pe);
+}
 }

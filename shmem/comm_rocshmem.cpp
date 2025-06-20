@@ -5,30 +5,25 @@
 #include <iostream>
 #include <rocshmem/rocshmem.hpp>
 
-#include "rocshmem_wrapper.h"
-
-#define CHECK_HIP(condition)                                        \
-  {                                                                 \
-    hipError_t error = condition;                                   \
-    if (error != hipSuccess) {                                      \
-      fprintf(stderr, "HIP error: %d line: %d\n", error, __LINE__); \
-      MPI_Abort(MPI_COMM_WORLD, error);                             \
-    }                                                               \
+#define CHECK_HIP(condition)                                                  \
+  {                                                                           \
+    const hipError_t error_code = condition;                                  \
+    if (error_code != hipSuccess) {                                           \
+      std::cerr << "HIP Error encountered: " << hipGetErrorString(error_code) \
+                << " at " << __FILE__ << ": " << __LINE__ << std::endl;       \
+      std::runtime_error(hipGetErrorString(error_code));                      \
+      MPI_Abort(MPI_COMM_WORLD, error_code);                                  \
+    }                                                                         \
   }
 using namespace rocshmem;
 
-extern "C" __device__ int rocshmem_my_pe_wrapper();
+__global__ void add(int *destination) {
+  int mype = rocshmem_my_pe();
+  int npes = rocshmem_n_pes();
+  int peer = (mype + 1) % npes;
 
-__global__ void add_rocshmem_my_pe(int *destination);
-
-// __global__ void add(int *destination){
-//     //int mype = rocshmem_my_pe();
-//     int mype = rocshmem_my_pe_wrapper();
-//     int npes = rocshmem_n_pes();
-//     int peer = (mype + 1) % npes;
-
-//     rocshmem_int_p(destination, mype, peer);
-// }
+  rocshmem_int_p(destination, mype, peer);
+}
 int main(int argc, char **argv) {
   int nelem = 256;
   int msg;
@@ -41,9 +36,10 @@ int main(int argc, char **argv) {
   rocshmem_init();
 
   int *dest = (int *)rocshmem_malloc(sizeof(int));
+  std::cout << "\n malloc done! \ndest: " << dest;
   int threadsPerBlock = 256;
   // add<<<dim3(1), dim3(threadsPerBlock), 0, 0>>>(dest);
-  add_rocshmem_my_pe<<<dim3(1), dim3(threadsPerBlock), 0, 0>>>(dest);
+  add<<<dim3(1), dim3(threadsPerBlock), 0, 0>>>(dest);
   CHECK_HIP(hipDeviceSynchronize());
   CHECK_HIP(
       hipMemcpyAsync(&msg, dest, sizeof(int), hipMemcpyDeviceToHost, NULL));
